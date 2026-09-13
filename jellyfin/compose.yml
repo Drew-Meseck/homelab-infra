@@ -2,7 +2,7 @@
 # The GTX 1050 is intentionally left free for other workloads.
 services:
   jellyfin:
-    image: jellyfin/jellyfin:10.10.3   # verify latest 10.x patch before deploy
+    image: jellyfin/jellyfin:12.0   # pinned; bump deliberately (major upgrades migrate the DB one-way)
     restart: unless-stopped
     ports:
       # Direct access for LAN media clients (TVs, Fire TV, phone apps) at
