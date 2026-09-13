@@ -1,0 +1,24 @@
+# Jellyfin. Uses the Intel iGPU (/dev/dri) for hardware transcoding.
+# The GTX 1050 is intentionally left free for other workloads.
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.10.3   # verify latest 10.x patch before deploy
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-America/New_York}
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      - ${MEDIA_ROOT:?set MEDIA_ROOT in jellyfin/.env}:/media:ro
+    devices:
+      - /dev/dri:/dev/dri              # the Intel iGPU render node
+    group_add:
+      # GID of the host `render` group so the container can use the iGPU.
+      # Find it on the docker host:  getent group render | cut -d: -f3
+      - "989"
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true

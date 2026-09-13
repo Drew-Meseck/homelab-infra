@@ -1,0 +1,20 @@
+# Caddy — the single front door. Owns ports 80/443 on the host.
+# Every web service joins the shared `edge` network and Caddy reaches it
+# by container name (see Caddyfile). Adding a service = one Caddyfile line.
+services:
+  caddy:
+    image: caddy:2.8-alpine        # verify latest 2.x patch before deploy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data:/data                # Caddy's local CA + cert store (persist!)
+      - ./config:/config
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true                  # created once at bootstrap (see README)

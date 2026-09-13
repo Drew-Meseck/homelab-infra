@@ -1,0 +1,20 @@
+# Caddyfile — explicit routes, no magic. Each service gets a block.
+# Change `home.lan` to whatever base domain you point at the docker host.
+#
+# NOTE: starts on plain HTTP for zero cert friction on the LAN. To move to
+# HTTPS with Caddy's own local CA, delete `auto_https off` and change the
+# `http://` prefixes to `https://` (then trust Caddy's root CA on your
+# devices — it's written to caddy/data/caddy/pki/authorities/local/root.crt).
+
+{
+	auto_https off
+}
+
+http://jellyfin.home.lan {
+	reverse_proxy jellyfin:8096
+}
+
+# Add new services here, e.g.:
+# http://mealie.home.lan {
+# 	reverse_proxy mealie:9000
+# }

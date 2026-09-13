@@ -1,0 +1,16 @@
+# Secrets — never commit real values (see README "Secrets roadmap")
+.env
+*.env
+!*.env.example
+
+# Service runtime state — data lives on the host, not in git
+**/data/
+**/config/
+**/cache/
+
+# SOPS decrypted output (Stage 2), just in case
+*.decrypted
+secrets.dec.*
+
+# Editor noise
+.DS_Store
