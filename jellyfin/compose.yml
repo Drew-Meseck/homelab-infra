@@ -4,6 +4,11 @@ services:
   jellyfin:
     image: jellyfin/jellyfin:10.10.3   # verify latest 10.x patch before deploy
     restart: unless-stopped
+    ports:
+      # Direct access for LAN media clients (TVs, Fire TV, phone apps) at
+      # http://<lxc-ip>:8096. Browser access still works via Caddy on the
+      # `edge` network (http://jellyfin.home.lan) once LAN DNS exists.
+      - "8096:8096"
     environment:
       - TZ=${TZ:-America/New_York}
     volumes:
