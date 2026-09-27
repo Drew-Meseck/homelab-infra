@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+#
+# rip - Blu-ray/DVD pipeline: MakeMKV rip -> NVENC HEVC encode -> rsync to media server.
+#
+# Usage:
+#   rip "The Matrix (1999)"                 # movie mode: main feature -> $MOVIES_DIR
+#   rip --tv "Andor" --season 1             # tv mode: all episode titles -> $TV_DIR
+#   rip --tv "Andor" -s 1 -e 4              # tv, numbering starts at episode 4
+#
+# Options:
+#   --tv                 TV mode (default is movie mode)
+#   -s, --season N       season number (tv mode, default 1)
+#   -e, --episode N      first episode number (tv mode, default 1)
+#   --drive N            override drive index for this run
+#   --keep               don't delete the staged files after upload
+#   --no-upload          rip + encode only, leave results in the stage dir
+#   --drives             just list optical drives and exit
+#   -h, --help           this help
+#
+set -euo pipefail
+
+CONFIG="${RIP_CONFIG:-$HOME/.config/rip/config}"
+[[ -f "$CONFIG" ]] && source "$CONFIG" || { echo "!! no config at $CONFIG" >&2; exit 1; }
+
+# --- helpers -----------------------------------------------------------------
+MK() { flatpak run --command=makemkvcon com.makemkv.MakeMKV "$@"; }
+log() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
+die() { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
+
+usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit "${1:-0}"; }
+
+# slugify not needed: Jellyfin wants the human name in the folder, so keep spaces.
+
+# --- arg parsing -------------------------------------------------------------
+MODE=movie SEASON=1 EP_START=1 KEEP=0 UPLOAD=1 TITLE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tv) MODE=tv ;;
+    -s|--season) SEASON="$2"; shift ;;
+    -e|--episode) EP_START="$2"; shift ;;
+    --drive) DRIVE="$2"; shift ;;
+    --keep) KEEP=1 ;;
+    --no-upload) UPLOAD=0 ;;
+    --drives) MK -r info disc:9999 2>/dev/null | grep '^DRV:' | grep -v '""'; exit 0 ;;
+    -h|--help) usage 0 ;;
+    -*) die "unknown option: $1 (see --help)" ;;
+    *) TITLE="$1" ;;
+  esac
+  shift
+done
+[[ -n "$TITLE" ]] || { warn "need a title"; usage 1; }
+
+# --- preflight ---------------------------------------------------------------
+command -v HandBrakeCLI >/dev/null || die "HandBrakeCLI not installed (sudo dnf install HandBrake-cli)"
+command -v rsync >/dev/null || die "rsync not installed"
+HandBrakeCLI --help 2>&1 | grep -qi 'nvenc_h265' \
+  || warn "HandBrakeCLI reports no nvenc_h265 encoder - encode will fail. Check NVIDIA driver."
+if [[ $UPLOAD -eq 1 ]]; then
+  ssh -o BatchMode=yes -o ConnectTimeout=6 "$SERVER" true 2>/dev/null \
+    || die "can't SSH to $SERVER with a key. Run:  ssh-copy-id $SERVER   (or use --no-upload)"
+fi
+
+# --- stage dir ---------------------------------------------------------------
+JOB="$STAGE/$(echo "$TITLE" | tr ' /' '__')-$(date +%s)"
+RAW="$JOB/raw" OUT="$JOB/out"
+mkdir -p "$RAW" "$OUT"
+cleanup() { [[ $KEEP -eq 0 && $UPLOAD -eq 1 ]] && rm -rf "$JOB"; }
+trap cleanup EXIT
+
+# --- discover titles (id \t seconds \t filename), sorted by id ---------------
+log "Reading disc on drive $DRIVE ..."
+mapfile -t TITLES < <(
+  MK info "disc:$DRIVE" -r 2>/dev/null | awk -F, '
+    /^TINFO:/ {
+      split($1,a,":"); id=a[2]; attr=$2;
+      val=$0; sub(/^TINFO:[0-9]+,[0-9]+,[0-9]+,/,"",val); gsub(/^"|"$/,"",val);
+      if(attr==9){ n=split(val,t,":");
+        secs[id]=(n==3)? t[1]*3600+t[2]*60+t[3] : (n==2? t[1]*60+t[2] : t[1]) }
+      if(attr==27){ file[id]=val }
+    }
+    END{ for(id in secs) print id"\t"secs[id]"\t"file[id] }
+  ' | sort -n
+)
+[[ ${#TITLES[@]} -gt 0 ]] || die "no titles found - is a disc loaded? (rip --drives to check the drive)"
+
+# --- choose which titles to rip ----------------------------------------------
+PICK=()   # array of "id \t filename"
+if [[ $MODE == movie ]]; then
+  best_id=""; best_secs=0; best_file=""
+  for row in "${TITLES[@]}"; do
+    IFS=$'\t' read -r id secs file <<<"$row"
+    (( secs >= MOVIE_MIN && secs > best_secs )) && { best_secs=$secs; best_id=$id; best_file=$file; }
+  done
+  [[ -n "$best_id" ]] || die "no title >= ${MOVIE_MIN}s found; adjust MOVIE_MIN or use --tv"
+  PICK+=("$best_id"$'\t'"$best_file")
+  log "Main feature: title $best_id ($((best_secs/60)) min)"
+else
+  for row in "${TITLES[@]}"; do
+    IFS=$'\t' read -r id secs file <<<"$row"
+    (( secs >= TV_MIN && secs <= TV_MAX )) && PICK+=("$id"$'\t'"$file")
+  done
+  [[ ${#PICK[@]} -gt 0 ]] || die "no episode-length titles ($TV_MIN-${TV_MAX}s) found; adjust TV_MIN/TV_MAX"
+  log "Episodes: ${#PICK[@]} title(s), starting at S$(printf %02d "$SEASON")E$(printf %02d "$EP_START")"
+fi
+
+# --- rip + encode each pick --------------------------------------------------
+declare -a RESULTS   # local paths of finished encodes
+ep=$EP_START
+for entry in "${PICK[@]}"; do
+  IFS=$'\t' read -r id srcfile <<<"$entry"
+
+  log "Ripping title $id ..."
+  MK mkv "disc:$DRIVE" "$id" "$RAW"
+  rawpath="$RAW/$srcfile"
+  [[ -f "$rawpath" ]] || rawpath="$(find "$RAW" -maxdepth 1 -name '*.mkv' -newer "$JOB" | head -1)"
+  [[ -f "$rawpath" ]] || die "expected rip output not found in $RAW"
+
+  # destination name (Jellyfin conventions)
+  if [[ $MODE == movie ]]; then
+    reldir="$TITLE"; outname="$TITLE.mkv"
+  else
+    s=$(printf %02d "$SEASON"); e=$(printf %02d "$ep")
+    reldir="$TITLE/Season $s"; outname="$TITLE - S${s}E${e}.mkv"
+    ((ep++))
+  fi
+  mkdir -p "$OUT/$reldir"
+  outpath="$OUT/$reldir/$outname"
+
+  log "Encoding -> $outname  (NVENC HEVC, CQ $QUALITY, preset $PRESET)"
+  # 8-bit HEVC. Audio: copy the original track AND add an AAC stereo fallback so
+  # web clients direct-play without a server-side audio transcode. Keep all subs + chapters.
+  HandBrakeCLI \
+    --input "$rawpath" --output "$outpath" \
+    --encoder "$ENCODER" --encoder-preset "$PRESET" --quality "$QUALITY" \
+    --crop 0:0:0:0 \
+    --audio 1,1 --aencoder copy,av_aac \
+      --audio-copy-mask truehd,dtshd,dts,eac3,ac3,aac,flac --audio-fallback av_aac \
+      --mixdown none,stereo --ab ,160 --aname "Original,Stereo (AAC)" \
+    --all-subtitles --markers
+
+  rm -f "$rawpath"          # free space as we go
+  RESULTS+=("$reldir")
+  log "Done: $outpath"
+done
+
+# --- upload ------------------------------------------------------------------
+if [[ $UPLOAD -eq 1 ]]; then
+  destroot="$MOVIES_DIR"; [[ $MODE == tv ]] && destroot="$TV_DIR"
+  log "Uploading to $SERVER:$destroot ..."
+  # push the show/movie folder(s); --mkpath creates missing dirs on the server
+  rsync -ah --info=progress2 --mkpath "$OUT/$TITLE" "$SERVER:$destroot/"
+  log "Uploaded. Jellyfin will pick it up on its next library scan."
+else
+  log "Skipped upload (--no-upload). Files are in: $OUT"
+fi
+
+log "All done."

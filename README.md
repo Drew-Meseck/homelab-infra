@@ -24,6 +24,7 @@ the docker host pulls and runs.
 caddy/         reverse proxy (front door)        → edge
 postgres/      shared database                   → data
 jellyfin/      media server (Intel iGPU xcode)   → edge
+ripping/       workstation disc→Jellyfin pipeline (runs off-host)
 bootstrap.sh   one-time network creation
 ```
 
