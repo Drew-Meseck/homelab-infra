@@ -113,7 +113,7 @@ Jellyfin is behind Caddy on the `edge` network (not published directly). Quickes
 way to test before local DNS exists — add a hosts entry on the **workstation**:
 
 ```bash
-echo '10.0.0.11 jellyfin.home.lan' | sudo tee -a /etc/hosts
+echo '<docker-host-ip> jellyfin.home.lan' | sudo tee -a /etc/hosts   # your server's LAN IP
 ```
 
 Then browse to **http://jellyfin.home.lan** → run the setup wizard → add a library
