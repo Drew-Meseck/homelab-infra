@@ -42,7 +42,7 @@ while [[ $# -gt 0 ]]; do
     --drive) DRIVE="$2"; shift ;;
     --keep) KEEP=1 ;;
     --no-upload) UPLOAD=0 ;;
-    --drives) MK -r info disc:9999 2>/dev/null | grep '^DRV:' | grep -v '""'; exit 0 ;;
+    --drives) MK -r info disc:9999 2>/dev/null | grep '^DRV:' | grep '/dev/'; exit 0 ;;
     -h|--help) usage 0 ;;
     -*) die "unknown option: $1 (see --help)" ;;
     *) TITLE="$1" ;;
