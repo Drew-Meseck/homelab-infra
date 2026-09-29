@@ -65,7 +65,7 @@ fi
 JOB="$STAGE/$(echo "$TITLE" | tr ' /' '__')-$(date +%s)"
 RAW="$JOB/raw" OUT="$JOB/out"
 mkdir -p "$RAW" "$OUT"
-cleanup() { [[ $KEEP -eq 0 && $UPLOAD -eq 1 ]] && rm -rf "$JOB"; }
+cleanup() { if [[ $KEEP -eq 0 && $UPLOAD -eq 1 ]]; then rm -rf "$JOB"; fi; }
 trap cleanup EXIT
 
 # --- discover titles (id \t seconds \t filename), sorted by id ---------------
