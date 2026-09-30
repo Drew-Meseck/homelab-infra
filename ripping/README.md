@@ -44,13 +44,20 @@ rip --no-upload "Foo (2020)"         # rip+encode only; inspect before trusting 
 ```
 
 Options: `--tv`, `-s/--season N`, `-e/--episode N`, `--drive N`, `--keep`,
-`--no-upload`, `--drives`, `-h/--help`. Everything else (quality, thresholds,
-paths) lives in `~/.config/rip/config`.
+`--no-upload`, `--detelecine`, `--drives`, `-h/--help`. Everything else (quality,
+thresholds, paths) lives in `~/.config/rip/config`.
 
 ## Gotchas
 
 - **TV episode order** follows disc title order — usually broadcast order, not
   always. Do a `--no-upload` run and check a box set before trusting it.
+- **DVDs are interlaced.** Adaptive decomb (`--comb-detect --decomb`) is always
+  on (harmless on progressive Blu-ray). For film/animation NTSC DVDs (3:2
+  telecine), add `--detelecine` to recover clean 23.976p — otherwise motion
+  judders. Short-form shows (<20 min/ep) fall under `TV_MIN`; lower it in config.
+- **Unmount the disc first.** If the desktop auto-mounts a DVD (e.g. under
+  `/run/media/...`), MakeMKV's scan can crawl. `udisksctl unmount -b /dev/sr0`
+  (no eject) before ripping.
 - **Main-feature pick** is "longest title over `MOVIE_MIN`." A few discs bury the
   feature behind a longer looping/branching title; verify with `--no-upload`.
 - This drive (Pioneer BP60NB10) is a standard BD-RE — DVD and 1080p Blu-ray only,

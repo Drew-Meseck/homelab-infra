@@ -14,6 +14,7 @@
 #   --drive N            override drive index for this run
 #   --keep               don't delete the staged files after upload
 #   --no-upload          rip + encode only, leave results in the stage dir
+#   --detelecine         inverse-telecine film/animation DVDs -> clean 23.976p
 #   --drives             just list optical drives and exit
 #   -h, --help           this help
 #
@@ -33,7 +34,7 @@ usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exi
 # slugify not needed: Jellyfin wants the human name in the folder, so keep spaces.
 
 # --- arg parsing -------------------------------------------------------------
-MODE=movie SEASON=1 EP_START=1 KEEP=0 UPLOAD=1 TITLE=""
+MODE=movie SEASON=1 EP_START=1 KEEP=0 UPLOAD=1 DETELECINE=0 TITLE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tv) MODE=tv ;;
@@ -42,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --drive) DRIVE="$2"; shift ;;
     --keep) KEEP=1 ;;
     --no-upload) UPLOAD=0 ;;
+    --detelecine) DETELECINE=1 ;;
     --drives) MK -r info disc:9999 2>/dev/null | grep '^DRV:' | grep '/dev/'; exit 0 ;;
     -h|--help) usage 0 ;;
     -*) die "unknown option: $1 (see --help)" ;;
@@ -105,6 +107,12 @@ else
 fi
 
 # --- rip + encode each pick --------------------------------------------------
+# Deinterlacing: adaptive decomb is safe on progressive Blu-ray too (it only
+# touches frames detected as combed); --detelecine (opt-in) inverse-telecines
+# film/animation NTSC DVDs back to clean 23.976p.
+HB_FILTERS=(--comb-detect --decomb)
+if [[ $DETELECINE -eq 1 ]]; then HB_FILTERS+=(--detelecine); fi
+
 declare -a RESULTS   # local paths of finished encodes
 ep=$EP_START
 for entry in "${PICK[@]}"; do
@@ -133,7 +141,7 @@ for entry in "${PICK[@]}"; do
   HandBrakeCLI \
     --input "$rawpath" --output "$outpath" \
     --encoder "$ENCODER" --encoder-preset "$PRESET" --quality "$QUALITY" \
-    --crop 0:0:0:0 \
+    --crop 0:0:0:0 "${HB_FILTERS[@]}" \
     --audio 1,1 --aencoder copy,av_aac \
       --audio-copy-mask truehd,dtshd,dts,eac3,ac3,aac,flac --audio-fallback av_aac \
       --mixdown none,stereo --ab ,160 --aname "Original,Stereo (AAC)" \
