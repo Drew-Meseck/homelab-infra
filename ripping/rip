@@ -35,6 +35,7 @@ usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exi
 
 # --- arg parsing -------------------------------------------------------------
 MODE=movie SEASON=1 EP_START=1 KEEP=0 UPLOAD=1 DETELECINE=0 TITLE=""
+ORIG_ARGS=("$@")   # preserved for the systemd-inhibit re-exec below (the loop shifts $@ away)
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tv) MODE=tv ;;
@@ -52,6 +53,15 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 [[ -n "$TITLE" ]] || { warn "need a title"; usage 1; }
+
+# Keep the machine awake for the whole run: auto-suspend/idle would pause the
+# rip+encode and can break the upload. Re-exec once under systemd-inhibit; the
+# RIP_INHIBITED guard prevents recursion, and only real rips reach here
+# (--drives/--help exit during arg parsing above).
+if [[ -z "${RIP_INHIBITED:-}" ]] && command -v systemd-inhibit >/dev/null 2>&1; then
+  export RIP_INHIBITED=1
+  exec systemd-inhibit --what=sleep:idle --who=rip --why="ripping $TITLE" --mode=block "$0" "${ORIG_ARGS[@]}"
+fi
 
 # --- preflight ---------------------------------------------------------------
 command -v HandBrakeCLI >/dev/null || die "HandBrakeCLI not installed (sudo dnf install HandBrake-cli)"

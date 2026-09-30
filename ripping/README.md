@@ -62,5 +62,8 @@ thresholds, paths) lives in `~/.config/rip/config`.
   feature behind a longer looping/branching title; verify with `--no-upload`.
 - This drive (Pioneer BP60NB10) is a standard BD-RE — DVD and 1080p Blu-ray only,
   **no 4K UHD** (those need a UHD-friendly drive with special firmware).
+- **Sleep would pause a run.** Each rip re-execs under `systemd-inhibit`
+  (`--what=sleep:idle`) so auto-suspend can't pause the rip/encode or break the
+  upload. `--drives`/`--help` skip it. No-ops if `systemd-inhibit` is absent.
 - The `rip` script here is the source of truth; `~/.local/bin/rip` is an installed
   copy. Re-run the `install` line after editing.
